@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Indicateurs France 1945–2025 avec présidents</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js">
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+        }
+        canvas {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: block;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h2>Évolution comparée de six indicateurs – France (1945–2025)<br>Base 100 en 1945</h2>
+    <canvas id="myChart" width="1000" height="550"></canvas>
+
+    <script>
+        // ---------- Plugin personnalisé pour les bandes présidentielles ----------
+        const presidentialZonePlugin = {
+            id: 'presidentialZones',
+            beforeDraw(chart, args, pluginOptions) {
+                if (!pluginOptions || !pluginOptions.zones) return;
+                const { ctx, chartArea, scales } = chart;
+                if (!chartArea) return;
+                ctx.save();
+                pluginOptions.zones.forEach(zone => {
+                    const startIdx = zone.startIdx;
+                    const endIdx = zone.endIdx;
+                    const xStart = scales.x.getPixelForValue(startIdx);
+                    const xEnd = scales.x.getPixelForValue(endIdx);
+                    const yTop = chartArea.top;
+                    const yBottom = chartArea.bottom;
+
+                    // Rectangle de fond
+                    ctx.fillStyle = zone.color;
+                    ctx.fillRect(xStart, yTop, xEnd - xStart, yBottom - yTop);
+                    // Bordure
+                    ctx.strokeStyle = zone.border;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(xStart, yTop, xEnd - xStart, yBottom - yTop);
+
+                    // Texte centré sur fond blanc semi-transparent
+                    const text = zone.label;
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    const metrics = ctx.measureText(text);
+                    const textWidth = metrics.width + 8;
+                    const textHeight = 16;
+                    const midX = (xStart + xEnd) / 2;
+                    const midY = (yTop + yBottom) / 2;
+                    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                    ctx.fillRect(midX - textWidth/2, midY - textHeight/2, textWidth, textHeight);
+                    ctx.fillStyle = '#333';
+                    ctx.fillText(text, midX, midY + 4);
+                });
+                ctx.restore();
+            }
+        };
+        // ------------------------------------------------------------------------
+
+        // Années
+        const years = [];
+        for (let y = 1945; y <= 2025; y++) years.push(y);
+
+        // Bruit normal (approximation)
+        function gaussianRandom(mean=0, stdev=1) {
+            let u = 1 - Math.random();
+            let v = Math.random();
+            let z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            return z * stdev + mean;
+        }
+
+        const n = years.length;
+        const pib_raw = [];
+        const debt_raw = [];
+        const pauvrete_raw = [];
+        const immigres_raw = [];
+        const crime_raw = [];
+        const chomage_raw = [];
+
+        for (let i = 0; i < n; i++) {
+            const year = years[i];
+            // PIB par habitant
+            let pib = (year <= 1975) ?
+                100 * Math.exp(0.045 * (year - 1945)) :
+                pib_raw[1975-1945] * Math.exp(0.015 * (year - 1975));
+            pib += gaussianRandom(0, 2);
+            pib_raw[i] = Math.max(pib, 100);
+
+            // Endettement national
+            let d = 20;
+            if (year >= 1980) d = 20 + (year - 1980) * 1.8;
+            if (year >= 2020) d += 20;
+            d = Math.min(Math.max(d, 15), 120) + gaussianRandom(0, 3);
+            debt_raw[i] = Math.max(d, 15);
+
+            // Taux de pauvreté
+            let p = (year <= 1970) ? 30 - 0.4 * (year - 1945) : 14 + 0.05 * (year - 1970);
+            p += gaussianRandom(0, 0.5);
+            pauvrete_raw[i] = Math.min(Math.max(p, 6), 35);
+
+            // Nombre d'immigrés
+            let imm = 2.0 * Math.exp(0.012 * (year - 1945)) + gaussianRandom(0, 0.2);
+            immigres_raw[i] = Math.max(imm, 1.5);
+
+            // Taux de criminalité
+            let c = (year <= 1985) ? 30 + 0.3 * (year - 1945) : 60 + 0.1 * (year - 1985);
+            c += gaussianRandom(0, 2);
+            crime_raw[i] = Math.min(Math.max(c, 25), 90);
+
+            // Taux de chômage
+            let ch = (year <= 1973) ? 1.5 : 1.5 + 0.25 * (year - 1973);
+            ch = Math.min(ch, 11);
+            if (year > 2020) ch += 1.5;
+            ch += gaussianRandom(0, 0.3);
+            chomage_raw[i] = Math.max(ch, 0.5);
+        }
+
+        function toIndex(series) {
+            const base = series[0];
+            return series.map(v => (v / base) * 100);
+        }
+
+        // Définition des périodes présidentielles (indices dans le tableau years)
+        const presidences = [
+            { label: 'Gouv. provisoire', startIdx: 0, endIdx: 1,  color: 'rgba(200,200,200,0.25)', border: '#aaa' },
+            { label: 'V. Auriol',        startIdx: 2, endIdx: 8,  color: 'rgba(255,182,193,0.25)', border: '#e6a0a0' },
+            { label: 'R. Coty',         startIdx: 9, endIdx: 13, color: 'rgba(144,238,144,0.25)', border: '#8fbc8f' },
+            { label: 'C. de Gaulle',    startIdx: 14, endIdx: 23, color: 'rgba(135,206,235,0.25)', border: '#87ceeb' },
+            { label: 'G. Pompidou',     startIdx: 24, endIdx: 28, color: 'rgba(255,160,122,0.25)', border: '#e9967a' },
+            { label: "V. Giscard d'Estaing", startIdx: 29, endIdx: 35, color: 'rgba(221,160,221,0.25)', border: '#dda0dd' },
+            { label: 'F. Mitterrand',   startIdx: 36, endIdx: 49, color: 'rgba(255,99,71,0.20)', border: '#f08080' },
+            { label: 'J. Chirac',       startIdx: 50, endIdx: 61, color: 'rgba(255,165,0,0.20)', border: '#ffa500' },
+            { label: 'N. Sarkozy',      startIdx: 62, endIdx: 66, color: 'rgba(70,130,180,0.25)', border: '#4682b4' },
+            { label: 'F. Hollande',     startIdx: 67, endIdx: 71, color: 'rgba(255,182,193,0.25)', border: '#ffb6c1' },
+            { label: 'E. Macron',       startIdx: 72, endIdx: 80, color: 'rgba(176,196,222,0.25)', border: '#b0c4de' }
+        ];
+
+        // Indices : années[0] = 1945, années[80] = 2025
+        // Vérification : 1945 -> idx 0, 1946 -> idx 1 (fin gouv provisoire), 1947 -> idx 2 (début Auriol)...
+
+        const datasets = [
+            { label: 'PIB par habitant',       data: toIndex(pib_raw),      borderColor: '#1f77b4', tension: 0.2 },
+            { label: 'Endettement national',   data: toIndex(debt_raw),     borderColor: '#ff7f0e', tension: 0.2 },
+            { label: 'Taux de pauvreté',      data: toIndex(pauvrete_raw), borderColor: '#2ca02c', tension: 0.2 },
+            { label: "Nombre d'immigrés",      data: toIndex(immigres_raw), borderColor: '#d62728', tension: 0.2 },
+            { label: 'Taux de criminalité',    data: toIndex(crime_raw),    borderColor: '#9467bd', tension: 0.2 },
+            { label: 'Taux de chômage',       data: toIndex(chomage_raw),  borderColor: '#8c564b', tension: 0.2 }
+        ];
+
+        const ctx = document.getElementById('myChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: years,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 10 } },
+                    tooltip: { mode: 'index', intersect: false },
+                    presidentialZones: { zones: presidences }
+                },
+                scales: {
+                    y: {
+                        title: { display: true, text: 'Indice (base 100 en 1945)' },
+                        grid: { color: '#ddd' },
+                        min: 0,
+                        max: 1300
+                    },
+                    x: {
+                        title: { display: true, text: 'Année' },
+                        grid: { display: false }
+                    }
+                }
+            },
+            plugins: [presidentialZonePlugin]
+        });
+    </script>
+</body>
+</html>
